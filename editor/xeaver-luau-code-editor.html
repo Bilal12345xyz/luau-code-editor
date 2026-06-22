@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Luau Code Editor</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #000000;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  .editor-wrapper {
+    position: relative;
+    display: flex;
+    height: 100vh;
+    background: #000000;
+    overflow: hidden;
+  }
+  .line-numbers {
+    flex-shrink: 0;
+    padding: 12px 12px 12px 16px;
+    text-align: right;
+    color: #4a4a4a;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 21px;
+    user-select: none;
+    overflow: hidden;
+    white-space: pre;
+    background: #000000;
+  }
+  .line-numbers .current {
+    color: #ffffff;
+    font-weight: 500;
+  }
+  .active-line {
+    position: absolute;
+    left: 16px;
+    right: 0;
+    height: 21px;
+    border-top: 2px solid #3a3a3a;
+    border-bottom: 2px solid #3a3a3a;
+    border-left: 2px solid #3a3a3a;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .code-area {
+    position: relative;
+    flex: 1;
+    overflow: auto;
+  }
+  .code-area pre,
+  .code-area textarea {
+    margin: 0;
+    padding: 12px 16px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 21px;
+    white-space: pre;
+    tab-size: 2;
+  }
+  .code-area pre {
+    position: absolute;
+    top: 0;
+    left: 0;
+    min-width: 100%;
+    min-height: 100%;
+    color: #d4d4d4;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .code-area textarea {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    resize: none;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: transparent;
+    caret-color: #ffffff;
+    overflow: hidden;
+    z-index: 2;
+  }
+  .tok-comment   { color: #6a7257; font-style: italic; }
+  .tok-string    { color: #c9986a; }
+  .tok-number    { color: #b5cea8; }
+  .tok-keyword   { color: #c586c0; }
+  .tok-bool      { color: #569cd6; }
+  .tok-builtin   { color: #4ec9b0; }
+  .tok-function  { color: #dcdcaa; }
+  .tok-property  { color: #9cdcfe; }
+  .tok-operator  { color: #d4d4d4; }
+  .placeholder {
+    position: absolute;
+    top: 12px;
+    left: 28px;
+    color: #4a4a4a;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 21px;
+    white-space: pre;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .find-widget {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    position: absolute;
+    top: 10px;
+    right: 26px;
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    padding: 6px;
+    z-index: 20;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  }
+  .find-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .find-row input {
+    background: #0a0a0a;
+    border: 1px solid #2a2a2a;
+    color: #d4d4d4;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    outline: none;
+    width: 170px;
+  }
+  .find-row input:focus {
+    border-color: #4a4a4a;
+  }
+  .find-count {
+    color: #6b6b6b;
+    font-size: 12px;
+    min-width: 46px;
+    text-align: center;
+    font-family: 'Consolas', 'Courier New', monospace;
+  }
+  .find-row button {
+    background: #0a0a0a;
+    border: 1px solid #2a2a2a;
+    color: #d4d4d4;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .find-row button:hover {
+    background: #1f1f1f;
+  }
+  .search-highlights {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .search-highlight {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.12);
+    pointer-events: none;
+  }
+  .search-highlight.current {
+    background: rgba(51, 130, 230, 0.5);
+    outline: 1px solid rgba(96, 165, 250, 0.9);
+  }
+</style>
+</head>
+<body>
+
+<div class="editor-wrapper">
+  <div class="line-numbers" id="lineNumbers">1</div>
+  <div class="code-area">
+    <div class="active-line" id="activeLine"></div>
+    <div class="search-highlights" id="searchHighlights"></div>
+    <div class="placeholder" id="placeholderText">Type your code here</div>
+    <pre><code id="highlight"></code></pre>
+    <textarea id="input" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+  </div>
+  <div class="find-widget" id="findWidget">
+    <div class="find-row">
+      <input id="findInput" type="text" placeholder="Find" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      <span class="find-count" id="findCount">0/0</span>
+      <button id="findPrev" title="Précédent (Shift+Enter)">↑</button>
+      <button id="findNext" title="Suivant (Enter)">↓</button>
+      <button id="findClose" title="Fermer (Esc)">✕</button>
+    </div>
+    <div class="find-row" id="replaceRow">
+      <input id="replaceInput" type="text" placeholder="Replace" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      <button id="replaceOne">Replace</button>
+      <button id="replaceAll">Replace All</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const input = document.getElementById('input');
+const highlight = document.getElementById('highlight');
+const lineNumbers = document.getElementById('lineNumbers');
+const activeLine = document.getElementById('activeLine');
+const placeholderText = document.getElementById('placeholderText');
+
+const KEYWORDS = "and|break|do|else|elseif|end|false|for|function|goto|if|in|local|nil|not|or|repeat|return|then|true|until|while|continue|export|type";
+const BOOLNIL = "true|false|nil";
+const BUILTINS = "game|workspace|script|self|Instance|Vector3|Vector2|CFrame|Color3|UDim2|UDim|Enum|task|string|table|math|os|coroutine|debug|print|warn|error|pairs|ipairs|next|pcall|xpcall|select|type|typeof|tostring|tonumber|require|unpack|rawget|rawset|rawequal|setmetatable|getmetatable|wait|spawn|delay|tick|loadstring|Region3|Ray|TweenInfo|BrickColor|NumberRange|NumberSequence|ColorSequence|RaycastParams";
+
+const tokenRegex = new RegExp(
+  "(--\\[(=*)\\[[\\s\\S]*?\\]\\2\\]|--[^\\n]*)" +
+  "|(\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'|\\[(=*)\\[[\\s\\S]*?\\]\\4\\])" +
+  "|(\\b0x[0-9a-fA-F]+\\b|\\b\\d+\\.?\\d*(?:[eE][+-]?\\d+)?\\b)" +
+  "|\\b(" + BOOLNIL + ")\\b" +
+  "|\\b(" + KEYWORDS + ")\\b" +
+  "|\\b(" + BUILTINS + ")\\b" +
+  "|([A-Za-z_]\\w*)(?=\\s*\\()" +
+  "|(?:\\.|:)([A-Za-z_]\\w*)" +
+  "|([+\\-*/%^#=<>~]+|\\.\\.\\.?)",
+  "g"
+);
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function highlightCode(code) {
+  let result = "";
+  let lastIndex = 0;
+  let match;
+  tokenRegex.lastIndex = 0;
+
+  while ((match = tokenRegex.exec(code)) !== null) {
+    if (match.index > lastIndex) {
+      result += escapeHtml(code.slice(lastIndex, match.index));
+    }
+
+    if (match[1] !== undefined) {
+      result += '<span class="tok-comment">' + escapeHtml(match[1]) + '</span>';
+    } else if (match[3] !== undefined) {
+      result += '<span class="tok-string">' + escapeHtml(match[3]) + '</span>';
+    } else if (match[5] !== undefined) {
+      result += '<span class="tok-number">' + escapeHtml(match[5]) + '</span>';
+    } else if (match[6] !== undefined) {
+      result += '<span class="tok-bool">' + escapeHtml(match[6]) + '</span>';
+    } else if (match[7] !== undefined) {
+      result += '<span class="tok-keyword">' + escapeHtml(match[7]) + '</span>';
+    } else if (match[8] !== undefined) {
+      result += '<span class="tok-builtin">' + escapeHtml(match[8]) + '</span>';
+    } else if (match[9] !== undefined) {
+      result += '<span class="tok-function">' + escapeHtml(match[9]) + '</span>';
+    } else if (match[10] !== undefined) {
+      const sep = match[0][0];
+      result += sep + '<span class="tok-property">' + escapeHtml(match[10]) + '</span>';
+    } else if (match[11] !== undefined) {
+      result += '<span class="tok-operator">' + escapeHtml(match[11]) + '</span>';
+    }
+
+    lastIndex = tokenRegex.lastIndex;
+  }
+
+  if (lastIndex < code.length) {
+    result += escapeHtml(code.slice(lastIndex));
+  }
+
+  return result;
+}
+
+function getCurrentLineIndex() {
+  const pos = input.selectionStart;
+  return input.value.slice(0, pos).split("\n").length - 1;
+}
+
+function updateLineNumbers(code, activeIndex) {
+  const lines = code.split("\n").length;
+  let html = "";
+  for (let i = 0; i < lines; i++) {
+    const isActive = i === activeIndex;
+    html += (isActive ? '<span class="current">' + (i + 1) + '</span>' : (i + 1));
+    if (i < lines - 1) html += "\n";
+  }
+  lineNumbers.innerHTML = html;
+}
+
+function updateActiveLine(activeIndex) {
+  activeLine.style.top = (12 + activeIndex * 21) + "px";
+}
+
+function render() {
+  const code = input.value;
+  highlight.innerHTML = highlightCode(code) + "\n";
+  const activeIndex = getCurrentLineIndex();
+  updateLineNumbers(code, activeIndex);
+  updateActiveLine(activeIndex);
+  placeholderText.style.display = code.length === 0 ? "block" : "none";
+}
+
+input.addEventListener("input", render);
+input.addEventListener("click", render);
+input.addEventListener("keyup", render);
+
+input.addEventListener("scroll", () => {
+  highlight.parentElement.scrollTop = input.scrollTop;
+  highlight.parentElement.scrollLeft = input.scrollLeft;
+  lineNumbers.scrollTop = input.scrollTop;
+});
+
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    input.value = input.value.slice(0, start) + "\t" + input.value.slice(end);
+    input.selectionStart = input.selectionEnd = start + 1;
+    render();
+  }
+});
+
+render();
+
+const findWidget = document.getElementById('findWidget');
+const findInput = document.getElementById('findInput');
+const replaceInput = document.getElementById('replaceInput');
+const replaceRow = document.getElementById('replaceRow');
+const findCount = document.getElementById('findCount');
+const findPrev = document.getElementById('findPrev');
+const findNext = document.getElementById('findNext');
+const findClose = document.getElementById('findClose');
+const replaceOneBtn = document.getElementById('replaceOne');
+const replaceAllBtn = document.getElementById('replaceAll');
+const searchHighlights = document.getElementById('searchHighlights');
+
+const measureSpan = document.createElement('span');
+measureSpan.style.fontFamily = "'Consolas', 'Courier New', monospace";
+measureSpan.style.fontSize = '14px';
+measureSpan.style.position = 'absolute';
+measureSpan.style.visibility = 'hidden';
+measureSpan.style.whiteSpace = 'pre';
+measureSpan.textContent = '0'.repeat(100);
+document.body.appendChild(measureSpan);
+const charWidth = measureSpan.getBoundingClientRect().width / 100;
+document.body.removeChild(measureSpan);
+
+let matches = [];
+let currentMatchIndex = -1;
+
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function recalcMatches() {
+  const query = findInput.value;
+  matches = [];
+  if (query.length === 0) {
+    currentMatchIndex = -1;
+    updateFindCount();
+    renderSearchHighlights();
+    return;
+  }
+  const re = new RegExp(escapeRegExp(query), "gi");
+  const text = input.value;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    matches.push({ start: m.index, end: m.index + m[0].length });
+    if (m[0].length === 0) re.lastIndex++;
+  }
+  if (currentMatchIndex >= matches.length) currentMatchIndex = matches.length - 1;
+  updateFindCount();
+  renderSearchHighlights();
+}
+
+function updateFindCount() {
+  findCount.textContent = matches.length === 0 ? "0/0" : (currentMatchIndex + 1) + "/" + matches.length;
+}
+
+function renderSearchHighlights() {
+  searchHighlights.innerHTML = "";
+  const text = input.value;
+  matches.forEach((m, idx) => {
+    const before = text.slice(0, m.start);
+    const lineIndex = before.split("\n").length - 1;
+    const lineStartPos = before.lastIndexOf("\n") + 1;
+    let nextNewline = text.indexOf("\n", lineStartPos);
+    if (nextNewline === -1) nextNewline = text.length;
+    const columnStart = m.start - lineStartPos;
+    const columnEnd = Math.min(m.end, nextNewline) - lineStartPos;
+    const div = document.createElement("div");
+    div.className = "search-highlight" + (idx === currentMatchIndex ? " current" : "");
+    div.style.top = (12 + lineIndex * 21) + "px";
+    div.style.left = (16 + columnStart * charWidth) + "px";
+    div.style.width = ((columnEnd - columnStart) * charWidth) + "px";
+    div.style.height = "21px";
+    searchHighlights.appendChild(div);
+  });
+}
+
+function scrollToMatch(m) {
+  const lineIndex = input.value.slice(0, m.start).split("\n").length - 1;
+  const lineTop = 12 + lineIndex * 21;
+  const visibleHeight = input.clientHeight;
+  if (lineTop < input.scrollTop || lineTop > input.scrollTop + visibleHeight - 21) {
+    input.scrollTop = Math.max(0, lineTop - visibleHeight / 2);
+  }
+}
+
+function goToMatch(index) {
+  if (matches.length === 0) {
+    updateFindCount();
+    return;
+  }
+  currentMatchIndex = ((index % matches.length) + matches.length) % matches.length;
+  const m = matches[currentMatchIndex];
+  input.setSelectionRange(m.start, m.end);
+  scrollToMatch(m);
+  render();
+  updateFindCount();
+  renderSearchHighlights();
+}
+
+function openFind(withReplace) {
+  findWidget.style.display = "flex";
+  replaceRow.style.display = withReplace ? "flex" : "none";
+  const selStart = input.selectionStart;
+  const selEnd = input.selectionEnd;
+  if (selEnd > selStart) {
+    findInput.value = input.value.slice(selStart, selEnd);
+  }
+  findInput.focus();
+  findInput.select();
+  recalcMatches();
+  if (matches.length > 0) goToMatch(0);
+}
+
+function closeFind() {
+  findWidget.style.display = "none";
+  matches = [];
+  currentMatchIndex = -1;
+  searchHighlights.innerHTML = "";
+  input.focus();
+  input.setSelectionRange(input.selectionEnd, input.selectionEnd);
+}
+
+function replaceOne() {
+  if (matches.length === 0) return;
+  const m = matches[currentMatchIndex];
+  input.value = input.value.slice(0, m.start) + replaceInput.value + input.value.slice(m.end);
+  render();
+  recalcMatches();
+  if (matches.length > 0) goToMatch(currentMatchIndex);
+}
+
+function replaceAll() {
+  const query = findInput.value;
+  if (query.length === 0) return;
+  const re = new RegExp(escapeRegExp(query), "gi");
+  input.value = input.value.replace(re, replaceInput.value);
+  render();
+  recalcMatches();
+}
+
+findInput.addEventListener("input", () => {
+  recalcMatches();
+  if (matches.length > 0) goToMatch(0);
+});
+
+findInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (e.shiftKey) goToMatch(currentMatchIndex - 1);
+    else goToMatch(currentMatchIndex + 1);
+  } else if (e.key === "Escape") {
+    closeFind();
+  }
+});
+
+replaceInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    replaceOne();
+  } else if (e.key === "Escape") {
+    closeFind();
+  }
+});
+
+findPrev.addEventListener("click", () => goToMatch(currentMatchIndex - 1));
+findNext.addEventListener("click", () => goToMatch(currentMatchIndex + 1));
+findClose.addEventListener("click", closeFind);
+replaceOneBtn.addEventListener("click", replaceOne);
+replaceAllBtn.addEventListener("click", replaceAll);
+
+document.addEventListener("keydown", (e) => {
+  if (!e.key) return;
+  const key = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && key === "f") {
+    e.preventDefault();
+    openFind(false);
+  } else if ((e.ctrlKey || e.metaKey) && key === "h") {
+    e.preventDefault();
+    openFind(true);
+  } else if (e.key === "Escape" && findWidget.style.display !== "none") {
+    closeFind();
+  }
+});
+</script>
+
+</body>
+</html>
