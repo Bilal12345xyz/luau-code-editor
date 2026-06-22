@@ -4,16 +4,14 @@
 <meta charset="UTF-8">
 <title>Luau Code Editor</title>
 <style>
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    margin: 0;
-    padding: 0;
     height: 100%;
     background: #000000;
     font-family: 'Segoe UI', Arial, sans-serif;
+    overflow: hidden;
   }
   .editor-wrapper {
-    position: relative;
     display: flex;
     height: 100vh;
     background: #000000;
@@ -31,29 +29,76 @@
     overflow: hidden;
     white-space: pre;
     background: #000000;
+    min-width: 48px;
   }
   .line-numbers .current {
     color: #ffffff;
     font-weight: 500;
   }
+  .code-area {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+  }
+  .scroll-container {
+    position: absolute;
+    inset: 0;
+    overflow: scroll;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scroll-container::-webkit-scrollbar {
+    display: none;
+  }
+  .scroll-content {
+    position: relative;
+    min-width: 100%;
+    min-height: 100%;
+  }
   .active-line {
     position: absolute;
-    left: 16px;
+    left: 0;
     right: 0;
     height: 21px;
     border-top: 2px solid #3a3a3a;
     border-bottom: 2px solid #3a3a3a;
-    border-left: 2px solid #3a3a3a;
     pointer-events: none;
     z-index: 0;
   }
-  .code-area {
-    position: relative;
-    flex: 1;
-    overflow: auto;
+  .search-highlights {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
   }
-  .code-area pre,
-  .code-area textarea {
+  .search-highlight {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.12);
+    pointer-events: none;
+  }
+  .search-highlight.current {
+    background: rgba(51, 130, 230, 0.5);
+    outline: 1px solid rgba(96, 165, 250, 0.9);
+  }
+  .placeholder {
+    position: absolute;
+    top: 12px;
+    left: 16px;
+    color: #4a4a4a;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 21px;
+    white-space: pre;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .code-area pre {
+    position: absolute;
+    top: 0;
+    left: 0;
     margin: 0;
     padding: 12px 16px;
     font-family: 'Consolas', 'Courier New', monospace;
@@ -61,16 +106,9 @@
     line-height: 21px;
     white-space: pre;
     tab-size: 2;
-  }
-  .code-area pre {
-    position: absolute;
-    top: 0;
-    left: 0;
-    min-width: 100%;
-    min-height: 100%;
     color: #d4d4d4;
     pointer-events: none;
-    z-index: 1;
+    z-index: 2;
   }
   .code-area textarea {
     position: absolute;
@@ -78,7 +116,13 @@
     left: 0;
     width: 100%;
     height: 100%;
-    min-height: 100%;
+    margin: 0;
+    padding: 12px 16px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 21px;
+    white-space: pre;
+    tab-size: 2;
     resize: none;
     border: none;
     outline: none;
@@ -86,7 +130,7 @@
     color: transparent;
     caret-color: #ffffff;
     overflow: hidden;
-    z-index: 2;
+    z-index: 3;
   }
   .tok-comment   { color: #6a7257; font-style: italic; }
   .tok-string    { color: #c9986a; }
@@ -97,18 +141,6 @@
   .tok-function  { color: #dcdcaa; }
   .tok-property  { color: #9cdcfe; }
   .tok-operator  { color: #d4d4d4; }
-  .placeholder {
-    position: absolute;
-    top: 12px;
-    left: 28px;
-    color: #4a4a4a;
-    font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 14px;
-    line-height: 21px;
-    white-space: pre;
-    pointer-events: none;
-    z-index: 1;
-  }
   .find-widget {
     display: none;
     flex-direction: column;
@@ -139,9 +171,7 @@
     outline: none;
     width: 170px;
   }
-  .find-row input:focus {
-    border-color: #4a4a4a;
-  }
+  .find-row input:focus { border-color: #4a4a4a; }
   .find-count {
     color: #6b6b6b;
     font-size: 12px;
@@ -158,27 +188,7 @@
     border-radius: 3px;
     cursor: pointer;
   }
-  .find-row button:hover {
-    background: #1f1f1f;
-  }
-  .search-highlights {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 0;
-  }
-  .search-highlight {
-    position: absolute;
-    background: rgba(255, 255, 255, 0.12);
-    pointer-events: none;
-  }
-  .search-highlight.current {
-    background: rgba(51, 130, 230, 0.5);
-    outline: 1px solid rgba(96, 165, 250, 0.9);
-  }
+  .find-row button:hover { background: #1f1f1f; }
 </style>
 </head>
 <body>
@@ -186,24 +196,28 @@
 <div class="editor-wrapper">
   <div class="line-numbers" id="lineNumbers">1</div>
   <div class="code-area">
-    <div class="active-line" id="activeLine"></div>
-    <div class="search-highlights" id="searchHighlights"></div>
-    <div class="placeholder" id="placeholderText">Type your code here</div>
-    <pre><code id="highlight"></code></pre>
-    <textarea id="input" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
-  </div>
-  <div class="find-widget" id="findWidget">
-    <div class="find-row">
-      <input id="findInput" type="text" placeholder="Find" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-      <span class="find-count" id="findCount">0/0</span>
-      <button id="findPrev" title="Précédent (Shift+Enter)">↑</button>
-      <button id="findNext" title="Suivant (Enter)">↓</button>
-      <button id="findClose" title="Fermer (Esc)">✕</button>
+    <div class="scroll-container" id="scrollContainer">
+      <div class="scroll-content" id="scrollContent">
+        <div class="active-line" id="activeLine"></div>
+        <div class="search-highlights" id="searchHighlights"></div>
+        <div class="placeholder" id="placeholderText">Type your code here</div>
+        <pre><code id="highlight"></code></pre>
+        <textarea id="input" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+      </div>
     </div>
-    <div class="find-row" id="replaceRow">
-      <input id="replaceInput" type="text" placeholder="Replace" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-      <button id="replaceOne">Replace</button>
-      <button id="replaceAll">Replace All</button>
+    <div class="find-widget" id="findWidget">
+      <div class="find-row">
+        <input id="findInput" type="text" placeholder="Find" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+        <span class="find-count" id="findCount">0/0</span>
+        <button id="findPrev" title="Précédent (Shift+Enter)">↑</button>
+        <button id="findNext" title="Suivant (Enter)">↓</button>
+        <button id="findClose" title="Fermer (Esc)">✕</button>
+      </div>
+      <div class="find-row" id="replaceRow">
+        <input id="replaceInput" type="text" placeholder="Replace" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+        <button id="replaceOne">Replace</button>
+        <button id="replaceAll">Replace All</button>
+      </div>
     </div>
   </div>
 </div>
@@ -214,6 +228,16 @@ const highlight = document.getElementById('highlight');
 const lineNumbers = document.getElementById('lineNumbers');
 const activeLine = document.getElementById('activeLine');
 const placeholderText = document.getElementById('placeholderText');
+const scrollContainer = document.getElementById('scrollContainer');
+const scrollContent = document.getElementById('scrollContent');
+const searchHighlights = document.getElementById('searchHighlights');
+
+const LINE_HEIGHT = 21;
+const PADDING_TOP = 12;
+const PADDING_LEFT = 16;
+
+let matches = [];
+let currentMatchIndex = -1;
 
 const KEYWORDS = "and|break|do|else|elseif|end|false|for|function|goto|if|in|local|nil|not|or|repeat|return|then|true|until|while|continue|export|type";
 const BOOLNIL = "true|false|nil";
@@ -241,81 +265,74 @@ function highlightCode(code) {
   let lastIndex = 0;
   let match;
   tokenRegex.lastIndex = 0;
-
   while ((match = tokenRegex.exec(code)) !== null) {
-    if (match.index > lastIndex) {
-      result += escapeHtml(code.slice(lastIndex, match.index));
-    }
-
-    if (match[1] !== undefined) {
-      result += '<span class="tok-comment">' + escapeHtml(match[1]) + '</span>';
-    } else if (match[3] !== undefined) {
-      result += '<span class="tok-string">' + escapeHtml(match[3]) + '</span>';
-    } else if (match[5] !== undefined) {
-      result += '<span class="tok-number">' + escapeHtml(match[5]) + '</span>';
-    } else if (match[6] !== undefined) {
-      result += '<span class="tok-bool">' + escapeHtml(match[6]) + '</span>';
-    } else if (match[7] !== undefined) {
-      result += '<span class="tok-keyword">' + escapeHtml(match[7]) + '</span>';
-    } else if (match[8] !== undefined) {
-      result += '<span class="tok-builtin">' + escapeHtml(match[8]) + '</span>';
-    } else if (match[9] !== undefined) {
-      result += '<span class="tok-function">' + escapeHtml(match[9]) + '</span>';
-    } else if (match[10] !== undefined) {
-      const sep = match[0][0];
-      result += sep + '<span class="tok-property">' + escapeHtml(match[10]) + '</span>';
-    } else if (match[11] !== undefined) {
-      result += '<span class="tok-operator">' + escapeHtml(match[11]) + '</span>';
-    }
-
+    if (match.index > lastIndex) result += escapeHtml(code.slice(lastIndex, match.index));
+    if (match[1] !== undefined) result += '<span class="tok-comment">' + escapeHtml(match[1]) + '</span>';
+    else if (match[3] !== undefined) result += '<span class="tok-string">' + escapeHtml(match[3]) + '</span>';
+    else if (match[5] !== undefined) result += '<span class="tok-number">' + escapeHtml(match[5]) + '</span>';
+    else if (match[6] !== undefined) result += '<span class="tok-bool">' + escapeHtml(match[6]) + '</span>';
+    else if (match[7] !== undefined) result += '<span class="tok-keyword">' + escapeHtml(match[7]) + '</span>';
+    else if (match[8] !== undefined) result += '<span class="tok-builtin">' + escapeHtml(match[8]) + '</span>';
+    else if (match[9] !== undefined) result += '<span class="tok-function">' + escapeHtml(match[9]) + '</span>';
+    else if (match[10] !== undefined) result += match[0][0] + '<span class="tok-property">' + escapeHtml(match[10]) + '</span>';
+    else if (match[11] !== undefined) result += '<span class="tok-operator">' + escapeHtml(match[11]) + '</span>';
     lastIndex = tokenRegex.lastIndex;
   }
-
-  if (lastIndex < code.length) {
-    result += escapeHtml(code.slice(lastIndex));
-  }
-
+  if (lastIndex < code.length) result += escapeHtml(code.slice(lastIndex));
   return result;
 }
 
 function getCurrentLineIndex() {
-  const pos = input.selectionStart;
-  return input.value.slice(0, pos).split("\n").length - 1;
+  return input.value.slice(0, input.selectionStart).split("\n").length - 1;
 }
 
-function updateLineNumbers(code, activeIndex) {
-  const lines = code.split("\n").length;
+function updateScrollContentSize(code) {
+  const lines = code.split("\n");
+  const lineCount = lines.length;
+  const longestLine = lines.reduce((max, l) => Math.max(max, l.length), 0);
+  const minH = PADDING_TOP * 2 + lineCount * LINE_HEIGHT;
+  const minW = PADDING_LEFT * 2 + longestLine * charWidth;
+  scrollContent.style.height = Math.max(minH, scrollContainer.clientHeight) + "px";
+  scrollContent.style.width = Math.max(minW, scrollContainer.clientWidth) + "px";
+  input.style.height = scrollContent.style.height;
+  input.style.width = scrollContent.style.width;
+}
+
+function updateLineNumbers(lineCount, activeIndex) {
   let html = "";
-  for (let i = 0; i < lines; i++) {
-    const isActive = i === activeIndex;
-    html += (isActive ? '<span class="current">' + (i + 1) + '</span>' : (i + 1));
-    if (i < lines - 1) html += "\n";
+  for (let i = 0; i < lineCount; i++) {
+    html += (i === activeIndex ? '<span class="current">' + (i + 1) + '</span>' : (i + 1));
+    if (i < lineCount - 1) html += "\n";
   }
   lineNumbers.innerHTML = html;
-}
-
-function updateActiveLine(activeIndex) {
-  activeLine.style.top = (12 + activeIndex * 21) + "px";
 }
 
 function render() {
   const code = input.value;
   highlight.innerHTML = highlightCode(code) + "\n";
   const activeIndex = getCurrentLineIndex();
-  updateLineNumbers(code, activeIndex);
-  updateActiveLine(activeIndex);
+  const lines = code.split("\n");
+  updateLineNumbers(lines.length, activeIndex);
+  activeLine.style.top = (PADDING_TOP + activeIndex * LINE_HEIGHT) + "px";
   placeholderText.style.display = code.length === 0 ? "block" : "none";
+  updateScrollContentSize(code);
+  renderSearchHighlights();
 }
+
+const measureSpan = document.createElement('span');
+measureSpan.style.cssText = "font-family:'Consolas','Courier New',monospace;font-size:14px;position:absolute;visibility:hidden;white-space:pre;";
+measureSpan.textContent = '0'.repeat(100);
+document.body.appendChild(measureSpan);
+const charWidth = measureSpan.getBoundingClientRect().width / 100;
+document.body.removeChild(measureSpan);
+
+scrollContainer.addEventListener("scroll", () => {
+  lineNumbers.scrollTop = scrollContainer.scrollTop;
+});
 
 input.addEventListener("input", render);
 input.addEventListener("click", render);
 input.addEventListener("keyup", render);
-
-input.addEventListener("scroll", () => {
-  highlight.parentElement.scrollTop = input.scrollTop;
-  highlight.parentElement.scrollLeft = input.scrollLeft;
-  lineNumbers.scrollTop = input.scrollTop;
-});
 
 input.addEventListener("keydown", (e) => {
   if (e.key === "Tab") {
@@ -340,21 +357,6 @@ const findNext = document.getElementById('findNext');
 const findClose = document.getElementById('findClose');
 const replaceOneBtn = document.getElementById('replaceOne');
 const replaceAllBtn = document.getElementById('replaceAll');
-const searchHighlights = document.getElementById('searchHighlights');
-
-const measureSpan = document.createElement('span');
-measureSpan.style.fontFamily = "'Consolas', 'Courier New', monospace";
-measureSpan.style.fontSize = '14px';
-measureSpan.style.position = 'absolute';
-measureSpan.style.visibility = 'hidden';
-measureSpan.style.whiteSpace = 'pre';
-measureSpan.textContent = '0'.repeat(100);
-document.body.appendChild(measureSpan);
-const charWidth = measureSpan.getBoundingClientRect().width / 100;
-document.body.removeChild(measureSpan);
-
-let matches = [];
-let currentMatchIndex = -1;
 
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -398,33 +400,29 @@ function renderSearchHighlights() {
     const columnEnd = Math.min(m.end, nextNewline) - lineStartPos;
     const div = document.createElement("div");
     div.className = "search-highlight" + (idx === currentMatchIndex ? " current" : "");
-    div.style.top = (12 + lineIndex * 21) + "px";
-    div.style.left = (16 + columnStart * charWidth) + "px";
+    div.style.top = (PADDING_TOP + lineIndex * LINE_HEIGHT) + "px";
+    div.style.left = (PADDING_LEFT + columnStart * charWidth) + "px";
     div.style.width = ((columnEnd - columnStart) * charWidth) + "px";
-    div.style.height = "21px";
+    div.style.height = LINE_HEIGHT + "px";
     searchHighlights.appendChild(div);
   });
 }
 
 function scrollToMatch(m) {
   const lineIndex = input.value.slice(0, m.start).split("\n").length - 1;
-  const lineTop = 12 + lineIndex * 21;
-  const visibleHeight = input.clientHeight;
-  if (lineTop < input.scrollTop || lineTop > input.scrollTop + visibleHeight - 21) {
-    input.scrollTop = Math.max(0, lineTop - visibleHeight / 2);
+  const lineTop = PADDING_TOP + lineIndex * LINE_HEIGHT;
+  const visibleHeight = scrollContainer.clientHeight;
+  if (lineTop < scrollContainer.scrollTop || lineTop + LINE_HEIGHT > scrollContainer.scrollTop + visibleHeight) {
+    scrollContainer.scrollTop = Math.max(0, lineTop - visibleHeight / 2);
   }
 }
 
 function goToMatch(index) {
-  if (matches.length === 0) {
-    updateFindCount();
-    return;
-  }
+  if (matches.length === 0) { updateFindCount(); return; }
   currentMatchIndex = ((index % matches.length) + matches.length) % matches.length;
   const m = matches[currentMatchIndex];
   input.setSelectionRange(m.start, m.end);
   scrollToMatch(m);
-  render();
   updateFindCount();
   renderSearchHighlights();
 }
@@ -434,9 +432,7 @@ function openFind(withReplace) {
   replaceRow.style.display = withReplace ? "flex" : "none";
   const selStart = input.selectionStart;
   const selEnd = input.selectionEnd;
-  if (selEnd > selStart) {
-    findInput.value = input.value.slice(selStart, selEnd);
-  }
+  if (selEnd > selStart) findInput.value = input.value.slice(selStart, selEnd);
   findInput.focus();
   findInput.select();
   recalcMatches();
@@ -449,13 +445,18 @@ function closeFind() {
   currentMatchIndex = -1;
   searchHighlights.innerHTML = "";
   input.focus();
-  input.setSelectionRange(input.selectionEnd, input.selectionEnd);
+}
+
+function insertTextWithUndo(textarea, start, end, replacement) {
+  textarea.focus();
+  textarea.setSelectionRange(start, end);
+  document.execCommand('insertText', false, replacement);
 }
 
 function replaceOne() {
   if (matches.length === 0) return;
   const m = matches[currentMatchIndex];
-  input.value = input.value.slice(0, m.start) + replaceInput.value + input.value.slice(m.end);
+  insertTextWithUndo(input, m.start, m.end, replaceInput.value);
   render();
   recalcMatches();
   if (matches.length > 0) goToMatch(currentMatchIndex);
@@ -464,34 +465,23 @@ function replaceOne() {
 function replaceAll() {
   const query = findInput.value;
   if (query.length === 0) return;
+  input.focus();
+  input.setSelectionRange(0, input.value.length);
   const re = new RegExp(escapeRegExp(query), "gi");
-  input.value = input.value.replace(re, replaceInput.value);
+  const newVal = input.value.replace(re, replaceInput.value);
+  document.execCommand('insertText', false, newVal);
   render();
   recalcMatches();
 }
 
-findInput.addEventListener("input", () => {
-  recalcMatches();
-  if (matches.length > 0) goToMatch(0);
-});
-
+findInput.addEventListener("input", () => { recalcMatches(); if (matches.length > 0) goToMatch(0); });
 findInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    if (e.shiftKey) goToMatch(currentMatchIndex - 1);
-    else goToMatch(currentMatchIndex + 1);
-  } else if (e.key === "Escape") {
-    closeFind();
-  }
+  if (e.key === "Enter") { e.preventDefault(); e.shiftKey ? goToMatch(currentMatchIndex - 1) : goToMatch(currentMatchIndex + 1); }
+  else if (e.key === "Escape") closeFind();
 });
-
 replaceInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    replaceOne();
-  } else if (e.key === "Escape") {
-    closeFind();
-  }
+  if (e.key === "Enter") { e.preventDefault(); replaceOne(); }
+  else if (e.key === "Escape") closeFind();
 });
 
 findPrev.addEventListener("click", () => goToMatch(currentMatchIndex - 1));
@@ -503,16 +493,12 @@ replaceAllBtn.addEventListener("click", replaceAll);
 document.addEventListener("keydown", (e) => {
   if (!e.key) return;
   const key = e.key.toLowerCase();
-  if ((e.ctrlKey || e.metaKey) && key === "f") {
-    e.preventDefault();
-    openFind(false);
-  } else if ((e.ctrlKey || e.metaKey) && key === "h") {
-    e.preventDefault();
-    openFind(true);
-  } else if (e.key === "Escape" && findWidget.style.display !== "none") {
-    closeFind();
-  }
+  if ((e.ctrlKey || e.metaKey) && key === "f") { e.preventDefault(); openFind(false); }
+  else if ((e.ctrlKey || e.metaKey) && key === "h") { e.preventDefault(); openFind(true); }
+  else if (e.key === "Escape" && findWidget.style.display !== "none") closeFind();
 });
+
+window.addEventListener("resize", () => render());
 </script>
 
 </body>
